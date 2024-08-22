@@ -1,0 +1,7 @@
+CompileFlags:
+  Compiler: c++
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+  ClangTidy:
+    Add: modernize*
