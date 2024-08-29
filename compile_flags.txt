@@ -1,6 +1,5 @@
 -xc++
--std=c++26
+-std=c++23
 -I.
 -isystem
 ./stdexec/include
--g

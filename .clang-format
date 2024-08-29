@@ -1,1 +1,4 @@
 BasedOnStyle: Google
+IndentWidth: 4
+BreakBeforeBinaryOperators: All
+ContinuationIndentWidth: 2
