@@ -13,7 +13,6 @@
 #include <exec/sequence/ignore_all_values.hpp>
 #include <exec/sequence/transform_each.hpp>
 #include <exec/timed_scheduler.hpp>
-#include <exec/variant_sender.hpp>
 #include <iostream>
 #include <stdexec/execution.hpp>
 #include <string>
@@ -59,22 +58,6 @@ struct env {
     sd::event_t event;
 };
 
-struct receiver {
-    using receiver_concept = ex::receiver_t;
-    void set_value() noexcept {}
-    void set_error(sd::exception_t exception) noexcept {
-        std::fprintf(stderr, "error: %s (%d)", exception.what(),
-                     exception.code().value());
-        sd_event_exit(event, EXIT_FAILURE);
-    }
-    void set_stopped() noexcept {
-        // oops
-        sd_event_exit(event, 0);
-    };
-    auto get_env() const noexcept { return env{event}; }
-    sd::event_t event;
-};
-
 int main() {
     [[gnu::cleanup(sd_event_unrefp)]]
     sd::event_t event{};
@@ -86,14 +69,21 @@ int main() {
 
     assert(sd_event_default(&event) >= 0);
 
-    auto op1 = ex::connect(listen_stdin(sd::scheduler{event}), receiver{event});
-    ex::start(op1);
-
-    auto op2 = ex::connect(watch_signal(sd::scheduler{event}), receiver{event});
-    ex::start(op2);
-
-    auto op3 = ex::connect(self_destroy(sd::scheduler{event}), receiver{event});
-    ex::start(op3);
+    scope.spawn(ex::when_all(watch_signal(sd::scheduler{event}),
+                             self_destroy(sd::scheduler{event}),
+                             listen_stdin(sd::scheduler{event}))
+                  | ex::upon_error([event](sd::exception_t exception) noexcept {
+                        std::fprintf(stderr, "error: %s (%d)\n",
+                                     exception.what(),
+                                     exception.code().value());
+                        sd_event_exit(event, EXIT_FAILURE);
+                    })
+                  | ex::upon_stopped([event] noexcept {
+                        std::fprintf(stderr, "ok stopping too\n");
+                        // one operation wants to stop
+                        sd_event_exit(event, 0);
+                    }),
+                env{event});
 
     return sd_event_loop(event);
 }

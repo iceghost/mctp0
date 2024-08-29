@@ -6,11 +6,11 @@
 #include <cstdint>
 #include <exec/async_scope.hpp>
 #include <exec/env.hpp>
-#include <exec/inline_scheduler.hpp>
 #include <exec/sequence_senders.hpp>
 #include <exec/timed_scheduler.hpp>
 #include <optional>
 #include <stdexec/execution.hpp>
+#include <stdexec/stop_token.hpp>
 #include <utility>
 
 #include "binding.h"
@@ -92,7 +92,6 @@ struct scheduler {
                             ex::get_env(r));
             }
             inline void stop() noexcept {
-                stop_callback.reset();
                 sd_event_source_set_enabled(source, SD_EVENT_OFF);
                 return ex::set_stopped(std::move(r));
             }
@@ -137,11 +136,11 @@ struct scheduler {
 
            private:
             inline void stop() noexcept {
-                stop_callback.reset();
                 sd_event_source_set_enabled(source, SD_EVENT_OFF);
                 return ex::set_stopped(std::move(r));
             }
             inline void handle(const signalfd_siginfo &si) noexcept {
+                stop_callback.reset();
                 return ex::set_value(std::move(r), si);
             }
             source_t source{};
@@ -188,11 +187,11 @@ struct scheduler {
 
            private:
             inline void stop() noexcept {
-                stop_callback.reset();
                 sd_event_source_set_enabled(source, SD_EVENT_OFF);
                 return ex::set_stopped(std::move(r));
             }
             inline void handle(uint64_t) noexcept {
+                stop_callback.reset();
                 return ex::set_value(std::move(r));
             }
             source_t source{};
@@ -241,11 +240,11 @@ struct scheduler {
 
            private:
             inline void stop() noexcept {
-                stop_callback.reset();
                 sd_event_source_set_enabled(source, SD_EVENT_OFF);
                 return ex::set_stopped(std::move(r));
             }
             inline void handle(uint64_t) noexcept {
+                stop_callback.reset();
                 return ex::set_value(std::move(r));
             }
             source_t source{};
@@ -310,12 +309,30 @@ struct stop_token {
     }
     sd_event *event;
 };
+
+template <typename CallbackFn>
+struct stop_callback {
+    stop_callback(stop_token t, CallbackFn cb)
+        : source(sd::add_exit<&stop_callback::handle>(t.event, this)), cb(cb) {}
+    stop_callback(const stop_callback &) = delete;
+    stop_callback(const stop_callback &&) = delete;
+    auto operator=(const stop_callback &) const & = delete;
+    auto operator=(const stop_callback &&) const & = delete;
+    ~stop_callback() noexcept { sd_event_source_disable_unref(source); }
+    void handle() noexcept { cb(); }
+    source_t source;
+    CallbackFn cb;
+};
 template <typename T, void (T:: *func)() noexcept>
 struct stop_callback<mem_fn<func>> {
     stop_callback(stop_token t, T *userdata)
         : source(sd::add_exit<func>(t.event, userdata)) {}
+    stop_callback(const stop_callback &) = delete;
+    stop_callback(const stop_callback &&) = delete;
+    auto operator=(const stop_callback &) const & = delete;
+    auto operator=(const stop_callback &&) const & = delete;
     ~stop_callback() noexcept { sd_event_source_disable_unref(source); }
-    sd_event_source *source;
+    source_t source;
 };
 
 }  // namespace sd
